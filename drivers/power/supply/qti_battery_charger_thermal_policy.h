@@ -18,24 +18,35 @@ static int battery_chg_calc_fastcharge_mode(u32 sport_mode, u32 smart_chg)
 static int battery_chg_get_fastcharge_mode(struct battery_chg_dev *bcdev, int *mode)
 {
 	struct psy_state *pst = &bcdev->psy_list[PSY_TYPE_XM];
-	int rc;
+	int rc = 0;
 	u32 sport_mode;
 	u32 smart_chg;
 
+	mutex_lock(&bcdev->fastcharge_lock);
+	/*
+	 * Firmware state can change on unplug or renegotiation. Keep an
+	 * explicit fastcharge_enable selection until userspace changes it.
+	 * Do not cache firmware readback before the first explicit selection.
+	 */
+	if (bcdev->fastcharge_mode_requested >= 0) {
+		*mode = bcdev->fastcharge_mode_requested;
+		goto out;
+	}
+
 	rc = read_property_id(bcdev, pst, XM_PROP_SPORT_MODE);
 	if (rc < 0)
-		return rc;
+		goto out;
 	sport_mode = pst->prop[XM_PROP_SPORT_MODE];
 
 	rc = read_property_id(bcdev, pst, XM_PROP_SMART_CHG);
 	if (rc < 0)
-		return rc;
+		goto out;
 	smart_chg = pst->prop[XM_PROP_SMART_CHG];
 
 	*mode = battery_chg_calc_fastcharge_mode(sport_mode, smart_chg);
-	bcdev->fastcharge_mode_cache = *mode;
-
-	return 0;
+out:
+	mutex_unlock(&bcdev->fastcharge_lock);
+	return rc;
 }
 
 static int battery_chg_get_temp_decic(struct battery_chg_dev *bcdev, int *temp_decic)
